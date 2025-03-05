@@ -16,27 +16,27 @@ MySecureShell is a lightweight SFTP server that provides additional features for
 ## Installation
 
 1. Clone the repository:
-   %%%bash
+   ```bash
    git clone <repo_url>
    cd <repo_directory>
-   %%%
+   ```   
 2. Start the container:
-   %%%bash
+   ```bash
    docker-compose up -d
-   %%%
+   ```
 
 ## User Management
 
 ### Adding Users
 To add users, use the following command:
-%%%bash
+```bash
 ./mss add <username1> [username2] ... [usernameN]
-%%%
+```
 
 ### Removing Users
 To remove users, use the following command:
-%%%bash
+```bash
 ./mss del <username1> [username2] ... [usernameN]
-%%%
+```
 
 
