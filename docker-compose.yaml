@@ -1,0 +1,26 @@
+version: "3"
+
+services:
+  mss:
+    hostname: mss
+    container_name: mss
+    build: .
+    ports:
+      - "2222:22"
+    volumes:
+      - ./data:/mnt/share
+      - ./config:/config
+      #- datashare:/mnt/share
+    restart: always
+
+#volumes:
+
+## NFS Volume example
+
+#  datashare:
+#    driver: local
+#    driver_opts:
+#      type: "nfs"
+#      o: "addr=mynfshost,rw,nfsvers=4"
+#      device: ":/mnt/storage/pveshare/mobileshare"
+

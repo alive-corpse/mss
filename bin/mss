@@ -1,0 +1,143 @@
+#!/bin/sh
+# MySecureShell users generation script by Evgeniy Shumilov <evgeniy.shumilov@gmail.com>
+
+# Расположение пользовательских директорий и дефолтная группа
+STORAGE=/mnt/share
+GROUP=users
+
+# Переходим в директорию, из которой вызван скрипт и загружаем логгер
+cd `dirname "$0"`
+[ -f "eslogger" ] || wget https://raw.githubusercontent.com/alive-corpse/eslogger/master/eslogger
+. ./eslogger
+
+# Проверяем, что скрипт запущен с полными правами, иначе запускаем через sudo 
+# c тем же набором параметров ($*), а затем выходим c тем же кодом ($?),
+# чтобы не пытаться выполнять содержимое второй раз
+if [ `whoami` != "root" ]; then
+    l "This script should be started with root privileges, restarting with sudo..."
+    sudo $0 $*
+    exit $?
+fi
+
+# Проверяем наличие mysecureshell и mkpasswd
+[ -z "$(which mysecureshell)" ] && l fe "Can't found mysecureshell binary" 4
+[ -z "$(which mkpasswd)" ] && l fe "Can't found mkpasswd binary (usually part of whois package)" 5
+
+# Добавляем help
+help() {
+    d
+        echo "Appeding new user/users:"
+        echo "  Usage: $0 add <username1> [username2] ... [usernameN]"
+        echo "  Example: $0 add user1 user2 user3"
+        echo
+        echo "Removing user/users:"
+        echo "  Usage: $0 del <username1> [username2] ... [usernameN]"
+        echo "  Example: $0 del user1 user2 user3"
+    d
+    [ -n "$1" ] && exit "$1"
+    exit 1
+}
+
+pwg() {
+        [ -z "$1" ] && len="8" || len="$1"
+        tr -dc A-Za-z0-9 < /dev/urandom | head -c "$len" | xargs
+}
+
+# Небольшой чит - функция для предоставления пользователю выбора
+# Возвращает один из вариантов "y" или "n"
+choise() {                                                                                                                                                                   
+    ch=''                                                                                                                                                                    
+    while [ -z "$(echo "$ch" | sed '/^[yn]$/!d')" ]; do                                                                                                                      
+        echo -n "$1 " > /dev/stderr                                                                                                      
+        read ch                                                                                                                                                              
+    done                                                                                                                                                                     
+    echo "$ch"                                                                                                                                                               
+} 
+
+# Функция для обновления файлов в /config
+update_config_files() {
+    cat /etc/passwd > /config/passwd
+    cat /etc/shadow > /config/shadow
+    cat /etc/group > /config/group
+    cat /etc/passwd- > /config/passwd-
+    cat /etc/shadow- > /config/shadow-
+    cat /etc/group- > /config/group-
+
+    d "Updated /config/passwd, /config/shadow, and /config/group"
+}
+
+addusers() {
+    for u in $1; do
+        # Заменяем все символы, которые не являются буквами и цифрами на символ "-"
+        uname="$(echo "$u" | sed 's/[^a-zA-Z0-9]/-/g')"
+        l "Trying to add user $uname..."
+        # Берём пароль длиной в 16 символов
+        passwd=`pwg 16`
+        # Генерируем ещё одну случайную последовательность для соли
+        salt=`pwg 8`
+        # Получаем хэш пароля
+        phash=`echo "$passwd" | mkpasswd -s -m sha-512 -S "$salt"`
+        # Пытаемся создать пользователя и выводим информацию об имени и пароле
+        if useradd -s /usr/bin/mysecureshell -d "$STORAGE/$uname" -M -p "$phash" -g "$GROUP" "$uname"; then
+            l "User $uname is added, password: $passwd"
+            # Создаём пользовательскую директорию и выдаём ему права:
+            mkdir -p "$STORAGE/$uname"
+            chown "$uname:$GROUP" "$STORAGE/$uname"
+            # Обновляем файлы в /config
+            update_config_files
+        else
+            l e "Fail to add user $uname"
+        fi
+    done
+}
+
+delusers() {
+    for u in $1; do
+        uname="$(echo "$u" | sed 's/[^a-zA-Z0-9]/-/g')"
+        l "Trying to remove user $uname..."
+        # Для начала проверим, что пользователь существует и заодно, что его id > 1000
+        # чтобы не удалить какого-нибудь системного пользователя
+        uid=`id "$uname" 2>&1`
+        if [ -n "$(echo "$uid" | grep -F 'no such user')" ]; then
+            l w "User $uname is not exists"
+        else
+            if [ "$(echo "$uid" | sed 's/^.*uid=//;s/(.*//')" -lt 1000 ]; then
+                l w "User $uname has id lower than 1000"
+            else
+                if deluser "$uname"; then
+                    l "User is deleted"
+                    # Проверяем, что есть директория и предлагаем её удалить,
+                    # будьте с этим осторожны!
+                    if [ -d "$STORAGE/$uname" ]; then
+                        if [ -n "$(choise "Do you want to remove user data (y/n)?") | grep -F 'y'" ]; then
+                            l "Removing directory $STORAGE/$uname..."
+                            rm -rfv "$STORAGE/$uname"
+                        fi
+                    fi
+                    # Обновляем файлы в /config
+                    update_config_files
+                else
+                    l e "Fail to delete user $uname"
+                fi
+            fi
+        fi
+    done
+}
+
+[ -z "$1" ] && l w "Empty command" && help 1
+[ -z "$2" ] && l w "Empty user name" && help 2
+
+users=`echo "$*" | cut -d " " -f 2-`
+
+case $1 in
+    add)
+        addusers "$users"
+    ;;
+    del)
+        delusers "$users"
+    ;;
+    *)
+        l w "Wrong command $1"
+        help 3
+    ;;
+esac

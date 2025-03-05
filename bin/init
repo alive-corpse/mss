@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# Constant with the content of the sftp_config file
+SFTP_CONFIG_CONTENT='
+# Modified for mysecureshell
+<Default>
+    GlobalDownload          0
+    GlobalUpload            0
+    Download                500k
+    Upload                  0
+    StayAtHome              true
+    VirtualChroot           true
+    LimitConnection         100
+    LimitConnectionByUser   10
+    LimitConnectionByIP     10
+    Home                    /mnt/share/\$USER/
+    IdleTimeOut             5m
+    ResolveIP               true
+    HideNoAccess            true
+    ShowLinksAsLinks        true
+    LogFile                 /tmp/sftp-server_ftp.log
+    Charset                 "UTF8"
+</Default>
+'
+
+# Create the /config directory if it doesn't exist
+if [ ! -d "/config" ]; then
+    mkdir -p /config
+fi
+
+# Function to copy files from /etc to /config if they don't exist
+copy_if_missing() {
+    local src=$1
+    local dest=$2
+
+    if [ ! -f "$dest" ]; then
+        cp "$src" "$dest"
+        chmod 640 "$dest"
+        echo "Copied $src to $dest"
+    fi
+}
+
+# Function to update files in /etc from /config
+update_etc_files() {
+    local src=$1
+    local dest=$2
+
+    if [ -f "$src" ]; then
+        cat "$src" > "$dest"
+        echo "Updated $dest from $src"
+    fi
+}
+
+# Process passwd, shadow, group files and their backups
+files=(
+    "/etc/passwd:/config/passwd"
+    "/etc/passwd-:/config/passwd-"
+    "/etc/shadow:/config/shadow"
+    "/etc/shadow-:/config/shadow-"
+    "/etc/group:/config/group"
+    "/etc/group-:/config/group-"
+)
+
+for pair in "${files[@]}"; do
+    src="${pair%%:*}"
+    dest="${pair##*:}"
+
+    # If the file is missing in /config, copy it from /etc
+    copy_if_missing "$src" "$dest"
+
+    # Update the file in /etc from /config
+    update_etc_files "$dest" "$src"
+done
+
+# Process the /config/ssh directory
+if [ ! -d "/config/ssh" ]; then
+    mv /etc/ssh /config/ssh
+    echo "Moved /etc/ssh to /config/ssh"
+fi
+
+# Create a symlink /etc/ssh -> /config/ssh
+if [ ! -L "/etc/ssh" ]; then
+    ln -sf /config/ssh /etc/ssh
+    echo "Created symlink /etc/ssh -> /config/ssh"
+fi
+
+# Process the /etc/ssh/sftp_config file
+if [ ! -f "/etc/ssh/sftp_config" ]; then
+    # If the file doesn't exist, create it with the specified content
+    echo "$SFTP_CONFIG_CONTENT" > /etc/ssh/sftp_config
+    echo "Created /etc/ssh/sftp_config"
+else
+    # If the file exists, check for the presence of the comment
+    if ! grep -q "^# Modified for mysecureshell" /etc/ssh/sftp_config; then
+        # If the comment is missing, replace the file content
+        echo "$SFTP_CONFIG_CONTENT" > /etc/ssh/sftp_config
+        echo "Updated /etc/ssh/sftp_config (added missing comment)"
+    else
+        echo "/etc/ssh/sftp_config already contains the required modifications. Skipping."
+    fi
+fi
+
+# Start the SSH daemon
+exec /usr/sbin/sshd -D
