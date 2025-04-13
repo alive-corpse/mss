@@ -101,4 +101,4 @@ else
 fi
 
 # Start the SSH daemon
-exec /usr/sbin/sshd -D
+exec /usr/sbin/sshd -D -d
